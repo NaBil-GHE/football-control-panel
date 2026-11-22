@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-plus-jakarta-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  --surface-canvas: #f6f7f9;
+  --surface-panel: #ffffff;
+  --surface-rail: #0f1419;
+  --surface-rail-hover: #1a222b;
+  --border-subtle: #e2e8f0;
+  --ink-primary: #0f172a;
+  --ink-secondary: #475569;
+  --accent-pitch: #15803d;
+  --accent-pitch-hover: #166534;
+}
+
+body {
+  background-color: var(--surface-canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
