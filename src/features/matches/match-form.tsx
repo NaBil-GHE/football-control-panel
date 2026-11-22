@@ -25,12 +25,20 @@ const matchFormSchema = z
     round: z.string().trim().max(60),
     isSimulation: z.boolean(),
     simulationSpeed: z.coerce.number().min(1).max(120),
-    simulationSeed: z.string().trim().max(120),
+    simulationSeed: z
+      .string()
+      .trim()
+      .max(120)
+      .refine(
+        (v) => v === '' || /^[a-zA-Z0-9._:-]+$/.test(v),
+        'Seed may only contain letters, numbers, dots, underscores, colons, and hyphens',
+      ),
     matchDuration: z.coerce.number().int().min(10).max(120),
     eventFrequency: z.coerce.number().int().min(2).max(30),
     goalProbability: z.coerce.number().min(0).max(1),
     cardProbability: z.coerce.number().min(0).max(1),
     substitutionProbability: z.coerce.number().min(0).max(1),
+    maxSubstitutionsPerTeam: z.coerce.number().int().min(0).max(7),
   })
   .refine((data) => data.homeTeam !== data.awayTeam, {
     message: 'Home team and away team must be different',
@@ -46,6 +54,13 @@ const matchFormSchema = z
     {
       message: 'Goal + card + substitution probabilities cannot exceed 1.0',
       path: ['goalProbability'],
+    },
+  )
+  .refine(
+    (data) => !data.isSimulation || data.eventFrequency <= data.matchDuration,
+    {
+      message: 'Target events cannot exceed match duration',
+      path: ['eventFrequency'],
     },
   );
 
@@ -66,6 +81,12 @@ export function MatchForm({
 }: MatchFormProps) {
   const { data: leaguesData } = useLeagues({ page: 1, limit: 100 });
   const { data: teamsData } = useTeams({ page: 1, limit: 100 });
+
+  const isSimulationLocked = Boolean(
+    initialData?.isSimulation &&
+      (initialData.simulationStatus === 'running' ||
+        initialData.simulationStatus === 'paused'),
+  );
 
   const {
     register,
@@ -92,6 +113,8 @@ export function MatchForm({
       cardProbability: initialData?.simulationConfig?.cardProbability ?? 0.38,
       substitutionProbability:
         initialData?.simulationConfig?.substitutionProbability ?? 0.32,
+      maxSubstitutionsPerTeam:
+        initialData?.simulationConfig?.maxSubstitutionsPerTeam ?? 5,
     },
   });
 
@@ -117,7 +140,7 @@ export function MatchForm({
 
   const handleFormSubmit = async (values: MatchFormValues) => {
     const kickoffDate = new Date(values.kickoff);
-    await onSubmit({
+    const payload: CreateMatchPayload = {
       league: values.league,
       season: values.season,
       homeTeam: values.homeTeam,
@@ -125,23 +148,27 @@ export function MatchForm({
       kickoff: kickoffDate.toISOString(),
       ...(values.venue ? { venue: values.venue } : {}),
       ...(values.round ? { round: values.round } : {}),
-      isSimulation: values.isSimulation,
-      ...(values.isSimulation
-        ? {
-            simulationSpeed: values.simulationSpeed,
-            ...(values.simulationSeed
-              ? { simulationSeed: values.simulationSeed }
-              : {}),
-            simulationConfig: {
-              matchDuration: values.matchDuration,
-              eventFrequency: values.eventFrequency,
-              goalProbability: values.goalProbability,
-              cardProbability: values.cardProbability,
-              substitutionProbability: values.substitutionProbability,
-            },
-          }
-        : {}),
-    });
+    };
+
+    if (!isSimulationLocked) {
+      payload.isSimulation = values.isSimulation;
+      if (values.isSimulation) {
+        payload.simulationSpeed = values.simulationSpeed;
+        if (values.simulationSeed) {
+          payload.simulationSeed = values.simulationSeed;
+        }
+        payload.simulationConfig = {
+          matchDuration: values.matchDuration,
+          eventFrequency: values.eventFrequency,
+          goalProbability: values.goalProbability,
+          cardProbability: values.cardProbability,
+          substitutionProbability: values.substitutionProbability,
+          maxSubstitutionsPerTeam: values.maxSubstitutionsPerTeam,
+        };
+      }
+    }
+
+    await onSubmit(payload);
   };
 
   return (
@@ -265,37 +292,57 @@ export function MatchForm({
         <label className="flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
           <input
             type="checkbox"
+            disabled={isSimulationLocked}
             className="h-4 w-4 rounded border-slate-300 accent-emerald-700"
             {...register('isSimulation')}
           />
           <span>Enable Match Simulation Mode</span>
         </label>
 
+        {isSimulationLocked && (
+          <p className="text-xs text-amber-700">
+            Simulation settings are locked while the simulation is{' '}
+            {initialData?.simulationStatus}. Reset the simulation from match
+            details to edit these parameters.
+          </p>
+        )}
+
         {isSimulation && (
           <div className="space-y-3 pt-1 border-t border-slate-200">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="sim-speed">Speed (1x–120x)</Label>
-                <Select id="sim-speed" {...register('simulationSpeed')}>
+                <Select
+                  id="sim-speed"
+                  disabled={isSimulationLocked}
+                  {...register('simulationSpeed')}
+                >
                   <option value={1}>1x (Slow)</option>
                   <option value={2}>2x</option>
                   <option value={5}>5x</option>
                   <option value={10}>10x (Default)</option>
                   <option value={30}>30x (Fast)</option>
                   <option value={60}>60x (Very fast)</option>
+                  <option value={120}>120x (Max)</option>
                 </Select>
               </div>
               <div>
-                <Label htmlFor="sim-seed">Deterministic seed (optional)</Label>
+                <Label htmlFor="sim-seed">Deterministic seed</Label>
                 <Input
                   id="sim-seed"
+                  disabled={isSimulationLocked}
                   placeholder="Auto-generated if empty"
                   {...register('simulationSeed')}
                 />
+                {errors.simulationSeed && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {errors.simulationSeed.message}
+                  </p>
+                )}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-2.5">
               <div>
                 <Label htmlFor="sim-duration">Duration (min)</Label>
                 <Input
@@ -303,20 +350,38 @@ export function MatchForm({
                   type="number"
                   min={10}
                   max={120}
+                  disabled={isSimulationLocked}
                   {...register('matchDuration')}
                 />
               </div>
               <div>
-                <Label htmlFor="sim-freq">Target events (2–30)</Label>
+                <Label htmlFor="sim-freq">Events (2–30)</Label>
                 <Input
                   id="sim-freq"
                   type="number"
                   min={2}
                   max={30}
+                  disabled={isSimulationLocked}
                   {...register('eventFrequency')}
                 />
               </div>
+              <div>
+                <Label htmlFor="sim-max-subs">Max subs/team</Label>
+                <Input
+                  id="sim-max-subs"
+                  type="number"
+                  min={0}
+                  max={7}
+                  disabled={isSimulationLocked}
+                  {...register('maxSubstitutionsPerTeam')}
+                />
+              </div>
             </div>
+            {errors.eventFrequency && (
+              <p className="text-xs text-red-600">
+                {errors.eventFrequency.message}
+              </p>
+            )}
 
             <div className="grid grid-cols-3 gap-2.5">
               <div>
@@ -327,6 +392,7 @@ export function MatchForm({
                   step="0.01"
                   min={0}
                   max={1}
+                  disabled={isSimulationLocked}
                   {...register('goalProbability')}
                 />
               </div>
@@ -338,6 +404,7 @@ export function MatchForm({
                   step="0.01"
                   min={0}
                   max={1}
+                  disabled={isSimulationLocked}
                   {...register('cardProbability')}
                 />
               </div>
@@ -349,6 +416,7 @@ export function MatchForm({
                   step="0.01"
                   min={0}
                   max={1}
+                  disabled={isSimulationLocked}
                   {...register('substitutionProbability')}
                 />
               </div>

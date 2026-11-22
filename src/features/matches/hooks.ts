@@ -194,16 +194,19 @@ export function useSimulationState(matchId: string, enabled: boolean) {
       return res.data;
     },
     enabled: Boolean(matchId) && enabled,
-    refetchInterval: (query) =>
-      query.state.data?.simulationStatus === 'running' ? 1500 : false,
+    refetchInterval: (query) => {
+      if (query.state.status === 'error') return false;
+      return query.state.data?.simulationStatus === 'running' ? 2000 : false;
+    },
+    refetchIntervalInBackground: false,
   });
 }
 
-function useInvalidateSimulation(matchId: string) {
+function useApplySimulationSuccess(matchId: string) {
   const qc = useQueryClient();
-  return () => {
-    qc.invalidateQueries({ queryKey: matchKeys.simulation(matchId) });
-    qc.invalidateQueries({ queryKey: matchKeys.detail(matchId) });
+  return (res: ApiSuccessResponse<SimulationState>) => {
+    qc.setQueryData(matchKeys.simulation(matchId), res.data);
+    qc.setQueryData(matchKeys.detail(matchId), res.data.match);
     qc.invalidateQueries({ queryKey: matchKeys.events(matchId) });
     qc.invalidateQueries({ queryKey: matchKeys.lists() });
     qc.invalidateQueries({ queryKey: dashboardKeys.all });
@@ -212,7 +215,7 @@ function useInvalidateSimulation(matchId: string) {
 }
 
 export function useStartSimulation(matchId: string) {
-  const invalidate = useInvalidateSimulation(matchId);
+  const onSuccess = useApplySimulationSuccess(matchId);
   return useMutation({
     mutationFn: (body?: {
       simulationSpeed?: number;
@@ -223,74 +226,74 @@ export function useStartSimulation(matchId: string) {
         `/matches/${matchId}/simulation/start`,
         body ?? {},
       ),
-    onSuccess: invalidate,
+    onSuccess,
   });
 }
 
 export function usePauseSimulation(matchId: string) {
-  const invalidate = useInvalidateSimulation(matchId);
+  const onSuccess = useApplySimulationSuccess(matchId);
   return useMutation({
     mutationFn: () =>
       api.post<ApiSuccessResponse<SimulationState>>(
         `/matches/${matchId}/simulation/pause`,
       ),
-    onSuccess: invalidate,
+    onSuccess,
   });
 }
 
 export function useResumeSimulation(matchId: string) {
-  const invalidate = useInvalidateSimulation(matchId);
+  const onSuccess = useApplySimulationSuccess(matchId);
   return useMutation({
     mutationFn: () =>
       api.post<ApiSuccessResponse<SimulationState>>(
         `/matches/${matchId}/simulation/resume`,
       ),
-    onSuccess: invalidate,
+    onSuccess,
   });
 }
 
 export function useChangeSimulationSpeed(matchId: string) {
-  const invalidate = useInvalidateSimulation(matchId);
+  const onSuccess = useApplySimulationSuccess(matchId);
   return useMutation({
     mutationFn: (simulationSpeed: number) =>
       api.patch<ApiSuccessResponse<SimulationState>>(
         `/matches/${matchId}/simulation/speed`,
         { simulationSpeed },
       ),
-    onSuccess: invalidate,
+    onSuccess,
   });
 }
 
 export function useAdvanceSimulation(matchId: string) {
-  const invalidate = useInvalidateSimulation(matchId);
+  const onSuccess = useApplySimulationSuccess(matchId);
   return useMutation({
     mutationFn: () =>
       api.post<ApiSuccessResponse<SimulationState>>(
         `/matches/${matchId}/simulation/next`,
       ),
-    onSuccess: invalidate,
+    onSuccess,
   });
 }
 
 export function useStopSimulation(matchId: string) {
-  const invalidate = useInvalidateSimulation(matchId);
+  const onSuccess = useApplySimulationSuccess(matchId);
   return useMutation({
     mutationFn: () =>
       api.post<ApiSuccessResponse<SimulationState>>(
         `/matches/${matchId}/simulation/stop`,
       ),
-    onSuccess: invalidate,
+    onSuccess,
   });
 }
 
 export function useResetSimulation(matchId: string) {
-  const invalidate = useInvalidateSimulation(matchId);
+  const onSuccess = useApplySimulationSuccess(matchId);
   return useMutation({
     mutationFn: (body?: { simulationSeed?: string; simulationSpeed?: number }) =>
       api.post<ApiSuccessResponse<SimulationState>>(
         `/matches/${matchId}/simulation/reset`,
         body ?? {},
       ),
-    onSuccess: invalidate,
+    onSuccess,
   });
 }

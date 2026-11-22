@@ -171,6 +171,7 @@ export const SIMULATION_STATUSES = [
   'running',
   'paused',
   'completed',
+  'stopped',
 ] as const;
 export type SimulationStatus = (typeof SIMULATION_STATUSES)[number];
 
@@ -180,6 +181,7 @@ export interface SimulationConfig {
   goalProbability: number;
   cardProbability: number;
   substitutionProbability: number;
+  maxSubstitutionsPerTeam: number;
 }
 
 export interface SimulationStepPreview {
@@ -276,6 +278,8 @@ export interface MatchEvent {
   playerIn?: string;
   playerOut?: string;
   description?: string;
+  isSimulated?: boolean;
+  simulationStepId?: string;
   createdAt: string;
   updatedAt: string;
 }

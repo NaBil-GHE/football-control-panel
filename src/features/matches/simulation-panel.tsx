@@ -1,15 +1,17 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import {
+  AlertCircle,
   Cpu,
   FastForward,
   Pause,
   Play,
+  RefreshCw,
   RotateCcw,
   Square,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -27,26 +29,42 @@ import {
   useStopSimulation,
 } from '@/features/matches/hooks';
 import { ApiClientError } from '@/lib/api-client';
-import type { Match, SimulationStatus } from '@/types/api';
+import type { Match, MatchEvent, SimulationStatus } from '@/types/api';
 
 const SIM_STATUS_TONES: Record<
   SimulationStatus,
-  { label: string; tone: 'slate' | 'green' | 'amber' | 'blue'; pulse?: boolean }
+  {
+    label: string;
+    tone: 'slate' | 'green' | 'amber' | 'blue' | 'red';
+    pulse?: boolean;
+  }
 > = {
-  idle: { label: 'Simulation idle', tone: 'slate' },
-  running: { label: 'Simulating live', tone: 'green', pulse: true },
-  paused: { label: 'Simulation paused', tone: 'amber' },
-  completed: { label: 'Simulation completed', tone: 'blue' },
+  idle: { label: 'Idle', tone: 'slate' },
+  running: { label: 'Running', tone: 'green', pulse: true },
+  paused: { label: 'Paused', tone: 'amber' },
+  completed: { label: 'Completed', tone: 'blue' },
+  stopped: { label: 'Stopped', tone: 'red' },
 };
 
-export function SimulationPanel({ match }: { match: Match }) {
+interface SimulationPanelProps {
+  match: Match;
+  events: MatchEvent[];
+}
+
+export function SimulationPanel({ match, events }: SimulationPanelProps) {
   const matchId = match._id;
   const qc = useQueryClient();
 
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
 
-  const { data: sim } = useSimulationState(matchId, Boolean(match.isSimulation));
+  const {
+    data: sim,
+    isError,
+    error,
+    isFetching,
+    refetch,
+  } = useSimulationState(matchId, Boolean(match.isSimulation));
 
   const startSim = useStartSimulation(matchId);
   const pauseSim = usePauseSimulation(matchId);
@@ -57,13 +75,17 @@ export function SimulationPanel({ match }: { match: Match }) {
   const resetSim = useResetSimulation(matchId);
 
   const executedSteps = sim?.progress.executedSteps ?? 0;
+  const prevExecutedRef = useRef<number>(executedSteps);
 
-  // Whenever simulation advances a step while polling, refresh match score & events timeline
+  // Only refresh match & events when simulation actually advances a step or changes state
   useEffect(() => {
     if (!sim) return;
-    qc.invalidateQueries({ queryKey: matchKeys.detail(matchId) });
-    qc.invalidateQueries({ queryKey: matchKeys.events(matchId) });
-  }, [executedSteps, sim?.simulationStatus, matchId, qc, sim]);
+    if (prevExecutedRef.current !== executedSteps) {
+      prevExecutedRef.current = executedSteps;
+      qc.setQueryData(matchKeys.detail(matchId), sim.match);
+      qc.invalidateQueries({ queryKey: matchKeys.events(matchId) });
+    }
+  }, [executedSteps, matchId, qc, sim]);
 
   const status: SimulationStatus =
     sim?.simulationStatus ?? match.simulationStatus ?? 'idle';
@@ -73,6 +95,7 @@ export function SimulationPanel({ match }: { match: Match }) {
     totalSteps > 0 ? Math.round((executedSteps / totalSteps) * 100) : 0;
   const statusMeta = SIM_STATUS_TONES[status];
 
+  const isTerminal = status === 'completed' || status === 'stopped';
   const isBusy =
     startSim.isPending ||
     pauseSim.isPending ||
@@ -81,6 +104,8 @@ export function SimulationPanel({ match }: { match: Match }) {
     advanceSim.isPending ||
     stopSim.isPending ||
     resetSim.isPending;
+
+  const recentEvents = events.slice(-4).reverse();
 
   const handleAction = async (
     fn: () => Promise<unknown>,
@@ -97,59 +122,94 @@ export function SimulationPanel({ match }: { match: Match }) {
   };
 
   return (
-    <section className="rounded-lg border border-emerald-200 bg-emerald-50/30 p-5 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+    <section className="rounded-lg border border-emerald-200 bg-white p-5 space-y-4">
+      {/* Header Row */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+        <div className="flex flex-wrap items-center gap-2">
           <Cpu className="h-4 w-4 text-emerald-700" />
           <h3 className="text-sm font-semibold text-slate-900">
-            Match simulation engine
+            Simulation console
           </h3>
-          <StatusBadge
-            label={statusMeta.label}
-            tone={statusMeta.tone}
-            pulse={statusMeta.pulse}
-          />
+          {isError ? (
+            <StatusBadge label="Error" tone="red" />
+          ) : (
+            <StatusBadge
+              label={statusMeta.label}
+              tone={statusMeta.tone}
+              pulse={statusMeta.pulse}
+            />
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <span className="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-800 tabular-nums">
+            {match.homeScore} - {match.awayScore} ({match.minute}&apos;)
+          </span>
           {sim?.simulationSeed && (
-            <span className="rounded bg-white px-2 py-0.5 border border-slate-200 font-mono">
+            <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-[11px]">
               Seed: {sim.simulationSeed}
             </span>
           )}
-          <span className="tabular-nums font-medium">
-            {executedSteps} / {totalSteps} steps ({progressPct}%)
-          </span>
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+      {/* Polling error recovery banner */}
+      {isError && (
         <div
-          className="h-full bg-emerald-600 transition-all duration-300"
-          style={{ width: `${progressPct}%` }}
-        />
-      </div>
-
-      {/* Next scheduled step preview */}
-      {sim?.progress.nextStep && status !== 'completed' && (
-        <div className="text-xs text-slate-600">
-          Next scheduled step:{' '}
-          <span className="font-semibold text-slate-800">
-            {sim.progress.nextStep.kind === 'event'
-              ? `${sim.progress.nextStep.eventType?.replace('_', ' ')}`
-              : sim.progress.nextStep.kind.replace('_', ' ')}{' '}
-            at {sim.progress.nextStep.minute}
-            {sim.progress.nextStep.addedTime > 0
-              ? `+${sim.progress.nextStep.addedTime}`
-              : ''}
-            &apos;
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+        >
+          <span className="flex items-center gap-1.5">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {error instanceof ApiClientError
+              ? error.message
+              : 'Lost connection while polling simulation state.'}
           </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={isFetching}
+            onClick={() => refetch()}
+            className="h-7 border-red-300 text-red-800 hover:bg-red-100"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </Button>
         </div>
       )}
 
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-2 pt-1">
+      {/* Progress & Next Event */}
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+          <span className="tabular-nums font-medium">
+            Progress: {executedSteps} / {totalSteps} steps ({progressPct}%)
+          </span>
+          {sim?.progress.nextStep && !isTerminal && (
+            <span>
+              Next:{' '}
+              <span className="font-semibold text-slate-800">
+                {sim.progress.nextStep.kind === 'event'
+                  ? sim.progress.nextStep.eventType?.replace('_', ' ')
+                  : sim.progress.nextStep.kind.replace('_', ' ')}{' '}
+                ({sim.progress.nextStep.minute}
+                {sim.progress.nextStep.addedTime > 0
+                  ? `+${sim.progress.nextStep.addedTime}`
+                  : ''}
+                &apos;)
+              </span>
+            </span>
+          )}
+        </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full bg-emerald-600 transition-all duration-300"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Action Controls */}
+      <div className="flex flex-wrap items-center gap-2">
         {status === 'idle' && (
           <Button
             size="sm"
@@ -159,7 +219,7 @@ export function SimulationPanel({ match }: { match: Match }) {
             }
           >
             <Play className="h-3.5 w-3.5" />
-            Start simulation
+            {startSim.isPending ? 'Starting...' : 'Start'}
           </Button>
         )}
 
@@ -173,7 +233,7 @@ export function SimulationPanel({ match }: { match: Match }) {
             }
           >
             <Pause className="h-3.5 w-3.5" />
-            Pause
+            {pauseSim.isPending ? 'Pausing...' : 'Pause'}
           </Button>
         )}
 
@@ -186,26 +246,24 @@ export function SimulationPanel({ match }: { match: Match }) {
             }
           >
             <Play className="h-3.5 w-3.5" />
-            Resume
+            {resumeSim.isPending ? 'Resuming...' : 'Resume'}
           </Button>
         )}
 
-        {status !== 'completed' && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={isBusy}
-            onClick={() =>
-              handleAction(
-                () => advanceSim.mutateAsync(),
-                'Advanced to next event',
-              )
-            }
-          >
-            <FastForward className="h-3.5 w-3.5" />
-            Next event
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isBusy || isTerminal}
+          onClick={() =>
+            handleAction(
+              () => advanceSim.mutateAsync(),
+              'Advanced to next event',
+            )
+          }
+        >
+          <FastForward className="h-3.5 w-3.5" />
+          {advanceSim.isPending ? 'Advancing...' : 'Next event'}
+        </Button>
 
         <div className="flex items-center gap-1.5">
           <label
@@ -217,7 +275,7 @@ export function SimulationPanel({ match }: { match: Match }) {
           <Select
             id="sim-live-speed"
             value={String(speed)}
-            disabled={isBusy || status === 'completed'}
+            disabled={isBusy || isTerminal}
             onChange={(e) => {
               const nextSpeed = Number(e.target.value);
               void handleAction(
@@ -233,6 +291,7 @@ export function SimulationPanel({ match }: { match: Match }) {
             <option value="10">10x</option>
             <option value="30">30x</option>
             <option value="60">60x</option>
+            <option value="120">120x</option>
           </Select>
         </div>
 
@@ -260,16 +319,83 @@ export function SimulationPanel({ match }: { match: Match }) {
         </Button>
       </div>
 
+      {/* Config Summary & Recent Events */}
+      <div className="grid grid-cols-1 gap-4 border-t border-slate-100 pt-3 md:grid-cols-2">
+        {sim?.simulationConfig && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-semibold text-slate-600">
+              Configuration
+            </div>
+            <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-600 tabular-nums">
+              <span className="rounded bg-slate-100 px-2 py-0.5">
+                Duration: {sim.simulationConfig.matchDuration}m
+              </span>
+              <span className="rounded bg-slate-100 px-2 py-0.5">
+                Target events: {sim.simulationConfig.eventFrequency}
+              </span>
+              <span className="rounded bg-slate-100 px-2 py-0.5">
+                Goals: {Math.round(sim.simulationConfig.goalProbability * 100)}%
+              </span>
+              <span className="rounded bg-slate-100 px-2 py-0.5">
+                Cards: {Math.round(sim.simulationConfig.cardProbability * 100)}%
+              </span>
+              <span className="rounded bg-slate-100 px-2 py-0.5">
+                Subs:{' '}
+                {Math.round(sim.simulationConfig.substitutionProbability * 100)}%
+                (max {sim.simulationConfig.maxSubstitutionsPerTeam}/team)
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <div className="text-xs font-semibold text-slate-600">
+            Recent events
+          </div>
+          {recentEvents.length === 0 ? (
+            <p className="text-xs text-slate-400">
+              No events generated yet. Start or step the simulation.
+            </p>
+          ) : (
+            <ul className="space-y-1 text-xs text-slate-700">
+              {recentEvents.map((ev) => (
+                <li
+                  key={ev._id}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span className="truncate">
+                    <span className="font-semibold tabular-nums">
+                      {ev.minute}
+                      {ev.addedTime > 0 ? `+${ev.addedTime}` : ''}&apos;
+                    </span>{' '}
+                    {ev.type.replace('_', ' ')} —{' '}
+                    {ev.type === 'substitution'
+                      ? `${ev.playerIn} / ${ev.playerOut}`
+                      : ev.player || ev.description}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-slate-400">
+                    {ev.team?.shortName}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
       <ConfirmDialog
         open={confirmStop}
         onOpenChange={setConfirmStop}
         title="Stop simulation"
-        description="Stop the active simulation and mark this match as finished?"
-        confirmLabel="Stop & finish"
+        description="Stop this simulation and cancel the match? Stopped simulations are excluded from league standings."
+        confirmLabel="Stop & cancel match"
         variant="destructive"
         isLoading={stopSim.isPending}
         onConfirm={async () => {
-          await handleAction(() => stopSim.mutateAsync(), 'Simulation stopped');
+          await handleAction(
+            () => stopSim.mutateAsync(),
+            'Simulation stopped and match cancelled',
+          );
           setConfirmStop(false);
         }}
       />
@@ -278,7 +404,7 @@ export function SimulationPanel({ match }: { match: Match }) {
         open={confirmReset}
         onOpenChange={setConfirmReset}
         title="Reset simulation"
-        description="Reset this match back to scheduled 0-0 and delete all simulated events?"
+        description="Reset this match back to scheduled 0-0 and delete all recorded events?"
         confirmLabel="Reset simulation"
         variant="warning"
         isLoading={resetSim.isPending}

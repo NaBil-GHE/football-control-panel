@@ -450,7 +450,7 @@ export default function MatchDetailPage() {
       </div>
 
       {/* Simulation Engine Controls (Simulation Matches Only) */}
-      {match.isSimulation && <SimulationPanel match={match} />}
+      {match.isSimulation && <SimulationPanel match={match} events={events} />}
 
       {/* Live Minute & Manual Score Controls */}
       {(canEditMinute || canEditScore) && (
@@ -569,63 +569,97 @@ export default function MatchDetailPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {events.map((ev) => {
-              const minuteLabel =
-                ev.addedTime > 0
-                  ? `${ev.minute}+${ev.addedTime}'`
-                  : `${ev.minute}'`;
-              const isHome = ev.team?._id === match.homeTeam._id;
+            {(() => {
+              let runningHome = 0;
+              let runningAway = 0;
 
-              return (
-                <div
-                  key={ev._id}
-                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="w-14 shrink-0 rounded bg-slate-100 px-2 py-1 text-center text-xs font-bold text-slate-800 tabular-nums">
-                      {minuteLabel}
-                    </span>
-                    <StatusBadge eventType={ev.type} />
-                    <div className="min-w-0">
-                      <div className="font-medium text-slate-900">
-                        {ev.type === 'substitution'
-                          ? `${ev.playerIn} (in) / ${ev.playerOut} (out)`
-                          : ev.player || ev.description || ev.type}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {ev.team?.name} ({isHome ? 'Home' : 'Away'})
-                        {ev.description && ev.player
-                          ? ` • ${ev.description}`
-                          : ''}
+              return events.map((ev) => {
+                const minuteLabel =
+                  ev.addedTime > 0
+                    ? `${ev.minute}+${ev.addedTime}'`
+                    : `${ev.minute}'`;
+                const isHome = ev.team?._id === match.homeTeam._id;
+
+                let isScoringEvent = false;
+                if (ev.type === 'goal' || ev.type === 'penalty') {
+                  isScoringEvent = true;
+                  if (isHome) runningHome += 1;
+                  else runningAway += 1;
+                } else if (ev.type === 'own_goal') {
+                  isScoringEvent = true;
+                  if (isHome) runningAway += 1;
+                  else runningHome += 1;
+                }
+
+                const scoreAfter = `${runningHome} - ${runningAway}`;
+
+                return (
+                  <div
+                    key={ev._id}
+                    className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="w-14 shrink-0 rounded bg-slate-100 px-2 py-1 text-center text-xs font-bold text-slate-800 tabular-nums">
+                        {minuteLabel}
+                      </span>
+                      <StatusBadge eventType={ev.type} />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 font-medium text-slate-900">
+                          <span>
+                            {ev.type === 'substitution'
+                              ? `${ev.playerIn} (in) / ${ev.playerOut} (out)`
+                              : ev.player || ev.description || ev.type}
+                          </span>
+                          {isScoringEvent && (
+                            <span className="rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800 tabular-nums">
+                              {scoreAfter}
+                            </span>
+                          )}
+                          <span
+                            className={
+                              ev.isSimulated
+                                ? 'rounded bg-sky-50 border border-sky-200 px-1.5 py-0.5 text-[10px] font-medium text-sky-700'
+                                : 'rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500'
+                            }
+                          >
+                            {ev.isSimulated ? 'Simulated' : 'Manual'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {ev.team?.name} ({isHome ? 'Home' : 'Away'})
+                          {ev.description && ev.player
+                            ? ` • ${ev.description}`
+                            : ''}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Edit event"
-                      onClick={() => {
-                        setEditingEvent(ev);
-                        setEventFormOpen(true);
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Delete event"
-                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                      onClick={() => setDeletingEvent(ev)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Edit event"
+                        onClick={() => {
+                          setEditingEvent(ev);
+                          setEventFormOpen(true);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Delete event"
+                        className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => setDeletingEvent(ev)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         )}
       </section>
