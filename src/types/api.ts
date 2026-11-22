@@ -166,6 +166,31 @@ export interface PopulatedSeason {
   current: boolean;
 }
 
+export const SIMULATION_STATUSES = [
+  'idle',
+  'running',
+  'paused',
+  'completed',
+] as const;
+export type SimulationStatus = (typeof SIMULATION_STATUSES)[number];
+
+export interface SimulationConfig {
+  matchDuration: number;
+  eventFrequency: number;
+  goalProbability: number;
+  cardProbability: number;
+  substitutionProbability: number;
+}
+
+export interface SimulationStepPreview {
+  stepId: string;
+  kind: 'kickoff' | 'event' | 'halftime' | 'second_half' | 'fulltime';
+  minute: number;
+  addedTime: number;
+  eventType?: MatchEventType;
+  description?: string;
+}
+
 export interface Match {
   _id: string;
   league: PopulatedLeague;
@@ -179,8 +204,32 @@ export interface Match {
   awayScore: number;
   minute: number;
   round?: string;
+  isSimulation?: boolean;
+  simulationStatus?: SimulationStatus;
+  simulationSpeed?: number;
+  simulationSeed?: string;
+  simulationStartedAt?: string;
+  simulationElapsedSeconds?: number;
+  simulationConfig?: SimulationConfig;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SimulationState {
+  matchId: string;
+  isSimulation: boolean;
+  simulationStatus: SimulationStatus;
+  simulationSpeed: number;
+  simulationSeed: string | null;
+  simulationStartedAt: string | null;
+  simulationElapsedSeconds: number;
+  simulationConfig: SimulationConfig;
+  progress: {
+    executedSteps: number;
+    totalSteps: number;
+    nextStep: SimulationStepPreview | null;
+  };
+  match: Match;
 }
 
 export interface CreateMatchPayload {
@@ -195,6 +244,10 @@ export interface CreateMatchPayload {
   awayScore?: number;
   minute?: number;
   round?: string;
+  isSimulation?: boolean;
+  simulationSpeed?: number;
+  simulationSeed?: string;
+  simulationConfig?: SimulationConfig;
 }
 
 export type UpdateMatchPayload = Partial<CreateMatchPayload>;

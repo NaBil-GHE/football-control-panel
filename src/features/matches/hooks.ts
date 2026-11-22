@@ -10,6 +10,8 @@ import type {
   Match,
   MatchStatus,
   PaginatedResponse,
+  SimulationConfig,
+  SimulationState,
   UpdateMatchPayload,
 } from '@/types/api';
 
@@ -23,6 +25,7 @@ export interface MatchesQueryParams {
   from?: string;
   to?: string;
   sort?: string;
+  isSimulation?: '' | 'true' | 'false';
 }
 
 export type LifecycleAction =
@@ -40,6 +43,7 @@ export const matchKeys = {
   details: () => [...matchKeys.all, 'detail'] as const,
   detail: (id: string) => [...matchKeys.details(), id] as const,
   events: (id: string) => [...matchKeys.detail(id), 'events'] as const,
+  simulation: (id: string) => [...matchKeys.detail(id), 'simulation'] as const,
 };
 
 export function useMatches(params: MatchesQueryParams = {}) {
@@ -58,6 +62,7 @@ export function useMatches(params: MatchesQueryParams = {}) {
           from: params.from || undefined,
           to: params.to || undefined,
           sort: params.sort ?? '-kickoff',
+          isSimulation: params.isSimulation || undefined,
         },
         signal,
       ),
@@ -174,5 +179,118 @@ export function useUpdateMatchScore() {
       qc.invalidateQueries({ queryKey: dashboardKeys.all });
       qc.invalidateQueries({ queryKey: leagueKeys.all });
     },
+  });
+}
+
+export function useSimulationState(matchId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: matchKeys.simulation(matchId),
+    queryFn: async ({ signal }) => {
+      const res = await api.get<ApiSuccessResponse<SimulationState>>(
+        `/matches/${matchId}/simulation`,
+        undefined,
+        signal,
+      );
+      return res.data;
+    },
+    enabled: Boolean(matchId) && enabled,
+    refetchInterval: (query) =>
+      query.state.data?.simulationStatus === 'running' ? 1500 : false,
+  });
+}
+
+function useInvalidateSimulation(matchId: string) {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: matchKeys.simulation(matchId) });
+    qc.invalidateQueries({ queryKey: matchKeys.detail(matchId) });
+    qc.invalidateQueries({ queryKey: matchKeys.events(matchId) });
+    qc.invalidateQueries({ queryKey: matchKeys.lists() });
+    qc.invalidateQueries({ queryKey: dashboardKeys.all });
+    qc.invalidateQueries({ queryKey: leagueKeys.all });
+  };
+}
+
+export function useStartSimulation(matchId: string) {
+  const invalidate = useInvalidateSimulation(matchId);
+  return useMutation({
+    mutationFn: (body?: {
+      simulationSpeed?: number;
+      simulationSeed?: string;
+      simulationConfig?: SimulationConfig;
+    }) =>
+      api.post<ApiSuccessResponse<SimulationState>>(
+        `/matches/${matchId}/simulation/start`,
+        body ?? {},
+      ),
+    onSuccess: invalidate,
+  });
+}
+
+export function usePauseSimulation(matchId: string) {
+  const invalidate = useInvalidateSimulation(matchId);
+  return useMutation({
+    mutationFn: () =>
+      api.post<ApiSuccessResponse<SimulationState>>(
+        `/matches/${matchId}/simulation/pause`,
+      ),
+    onSuccess: invalidate,
+  });
+}
+
+export function useResumeSimulation(matchId: string) {
+  const invalidate = useInvalidateSimulation(matchId);
+  return useMutation({
+    mutationFn: () =>
+      api.post<ApiSuccessResponse<SimulationState>>(
+        `/matches/${matchId}/simulation/resume`,
+      ),
+    onSuccess: invalidate,
+  });
+}
+
+export function useChangeSimulationSpeed(matchId: string) {
+  const invalidate = useInvalidateSimulation(matchId);
+  return useMutation({
+    mutationFn: (simulationSpeed: number) =>
+      api.patch<ApiSuccessResponse<SimulationState>>(
+        `/matches/${matchId}/simulation/speed`,
+        { simulationSpeed },
+      ),
+    onSuccess: invalidate,
+  });
+}
+
+export function useAdvanceSimulation(matchId: string) {
+  const invalidate = useInvalidateSimulation(matchId);
+  return useMutation({
+    mutationFn: () =>
+      api.post<ApiSuccessResponse<SimulationState>>(
+        `/matches/${matchId}/simulation/next`,
+      ),
+    onSuccess: invalidate,
+  });
+}
+
+export function useStopSimulation(matchId: string) {
+  const invalidate = useInvalidateSimulation(matchId);
+  return useMutation({
+    mutationFn: () =>
+      api.post<ApiSuccessResponse<SimulationState>>(
+        `/matches/${matchId}/simulation/stop`,
+      ),
+    onSuccess: invalidate,
+  });
+}
+
+export function useResetSimulation(matchId: string) {
+  const invalidate = useInvalidateSimulation(matchId);
+  return useMutation({
+    mutationFn: (body?: { simulationSeed?: string; simulationSpeed?: number }) =>
+      api.post<ApiSuccessResponse<SimulationState>>(
+        `/matches/${matchId}/simulation/reset`,
+        body ?? {},
+      ),
+    onSuccess: invalidate,
   });
 }

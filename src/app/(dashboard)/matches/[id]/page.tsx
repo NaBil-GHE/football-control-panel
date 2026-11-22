@@ -46,6 +46,7 @@ import {
   type LifecycleAction,
 } from '@/features/matches/hooks';
 import { MatchForm } from '@/features/matches/match-form';
+import { SimulationPanel } from '@/features/matches/simulation-panel';
 import { ApiClientError } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/utils';
 import type {
@@ -447,6 +448,9 @@ export default function MatchDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Simulation Engine Controls (Simulation Matches Only) */}
+      {match.isSimulation && <SimulationPanel match={match} />}
 
       {/* Live Minute & Manual Score Controls */}
       {(canEditMinute || canEditScore) && (

@@ -23,11 +23,31 @@ const matchFormSchema = z
     kickoff: z.string().min(1, 'Kickoff date and time is required'),
     venue: z.string().trim().max(150),
     round: z.string().trim().max(60),
+    isSimulation: z.boolean(),
+    simulationSpeed: z.coerce.number().min(1).max(120),
+    simulationSeed: z.string().trim().max(120),
+    matchDuration: z.coerce.number().int().min(10).max(120),
+    eventFrequency: z.coerce.number().int().min(2).max(30),
+    goalProbability: z.coerce.number().min(0).max(1),
+    cardProbability: z.coerce.number().min(0).max(1),
+    substitutionProbability: z.coerce.number().min(0).max(1),
   })
   .refine((data) => data.homeTeam !== data.awayTeam, {
     message: 'Home team and away team must be different',
     path: ['awayTeam'],
-  });
+  })
+  .refine(
+    (data) =>
+      !data.isSimulation ||
+      data.goalProbability +
+        data.cardProbability +
+        data.substitutionProbability <=
+        1.0001,
+    {
+      message: 'Goal + card + substitution probabilities cannot exceed 1.0',
+      path: ['goalProbability'],
+    },
+  );
 
 type MatchFormValues = z.infer<typeof matchFormSchema>;
 
@@ -63,12 +83,22 @@ export function MatchForm({
       kickoff: toDateTimeLocalValue(initialData?.kickoff),
       venue: initialData?.venue ?? '',
       round: initialData?.round ?? '',
+      isSimulation: initialData?.isSimulation ?? false,
+      simulationSpeed: initialData?.simulationSpeed ?? 10,
+      simulationSeed: initialData?.simulationSeed ?? '',
+      matchDuration: initialData?.simulationConfig?.matchDuration ?? 90,
+      eventFrequency: initialData?.simulationConfig?.eventFrequency ?? 12,
+      goalProbability: initialData?.simulationConfig?.goalProbability ?? 0.22,
+      cardProbability: initialData?.simulationConfig?.cardProbability ?? 0.38,
+      substitutionProbability:
+        initialData?.simulationConfig?.substitutionProbability ?? 0.32,
     },
   });
 
   const selectedLeagueId = watch('league');
   const selectedHomeTeamId = watch('homeTeam');
   const selectedSeasonId = watch('season');
+  const isSimulation = watch('isSimulation');
 
   const { data: seasons = [] } = useLeagueSeasons(selectedLeagueId);
 
@@ -95,6 +125,22 @@ export function MatchForm({
       kickoff: kickoffDate.toISOString(),
       ...(values.venue ? { venue: values.venue } : {}),
       ...(values.round ? { round: values.round } : {}),
+      isSimulation: values.isSimulation,
+      ...(values.isSimulation
+        ? {
+            simulationSpeed: values.simulationSpeed,
+            ...(values.simulationSeed
+              ? { simulationSeed: values.simulationSeed }
+              : {}),
+            simulationConfig: {
+              matchDuration: values.matchDuration,
+              eventFrequency: values.eventFrequency,
+              goalProbability: values.goalProbability,
+              cardProbability: values.cardProbability,
+              substitutionProbability: values.substitutionProbability,
+            },
+          }
+        : {}),
     });
   };
 
@@ -212,6 +258,108 @@ export function MatchForm({
             {...register('round')}
           />
         </div>
+      </div>
+
+      {/* Simulation Mode Configuration */}
+      <div className="rounded-md border border-slate-200 bg-slate-50/70 p-3.5 space-y-3">
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-slate-300 accent-emerald-700"
+            {...register('isSimulation')}
+          />
+          <span>Enable Match Simulation Mode</span>
+        </label>
+
+        {isSimulation && (
+          <div className="space-y-3 pt-1 border-t border-slate-200">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="sim-speed">Speed (1x–120x)</Label>
+                <Select id="sim-speed" {...register('simulationSpeed')}>
+                  <option value={1}>1x (Slow)</option>
+                  <option value={2}>2x</option>
+                  <option value={5}>5x</option>
+                  <option value={10}>10x (Default)</option>
+                  <option value={30}>30x (Fast)</option>
+                  <option value={60}>60x (Very fast)</option>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="sim-seed">Deterministic seed (optional)</Label>
+                <Input
+                  id="sim-seed"
+                  placeholder="Auto-generated if empty"
+                  {...register('simulationSeed')}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="sim-duration">Duration (min)</Label>
+                <Input
+                  id="sim-duration"
+                  type="number"
+                  min={10}
+                  max={120}
+                  {...register('matchDuration')}
+                />
+              </div>
+              <div>
+                <Label htmlFor="sim-freq">Target events (2–30)</Label>
+                <Input
+                  id="sim-freq"
+                  type="number"
+                  min={2}
+                  max={30}
+                  {...register('eventFrequency')}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2.5">
+              <div>
+                <Label htmlFor="sim-goal-p">Goal prob.</Label>
+                <Input
+                  id="sim-goal-p"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={1}
+                  {...register('goalProbability')}
+                />
+              </div>
+              <div>
+                <Label htmlFor="sim-card-p">Card prob.</Label>
+                <Input
+                  id="sim-card-p"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={1}
+                  {...register('cardProbability')}
+                />
+              </div>
+              <div>
+                <Label htmlFor="sim-sub-p">Sub prob.</Label>
+                <Input
+                  id="sim-sub-p"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={1}
+                  {...register('substitutionProbability')}
+                />
+              </div>
+            </div>
+            {errors.goalProbability && (
+              <p className="text-xs text-red-600">
+                {errors.goalProbability.message}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <DialogFooter>

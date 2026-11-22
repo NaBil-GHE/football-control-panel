@@ -43,6 +43,7 @@ function MatchesContent() {
   const [status, setStatus] = useState<MatchStatus | ''>(
     MATCH_STATUSES.includes(initialStatus as MatchStatus) ? initialStatus : '',
   );
+  const [simFilter, setSimFilter] = useState<'' | 'true' | 'false'>('');
   const [dateFilter, setDateFilter] = useState('');
 
   const [formOpen, setFormOpen] = useState(false);
@@ -65,6 +66,7 @@ function MatchesContent() {
     league: leagueId || undefined,
     season: seasonId || undefined,
     status,
+    isSimulation: simFilter,
     from: fromIso,
     to: toIso,
   });
@@ -160,7 +162,12 @@ function MatchesContent() {
     {
       key: 'status',
       header: 'Status',
-      render: (m) => <StatusBadge matchStatus={m.status} />,
+      render: (m) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge matchStatus={m.status} />
+          {m.isSimulation && <StatusBadge label="Sim" tone="blue" />}
+        </div>
+      ),
     },
     {
       key: 'actions',
@@ -201,7 +208,9 @@ function MatchesContent() {
     },
   ];
 
-  const hasFilters = Boolean(leagueId || seasonId || status || dateFilter);
+  const hasFilters = Boolean(
+    leagueId || seasonId || status || dateFilter || simFilter,
+  );
 
   return (
     <div className="space-y-4">
@@ -279,6 +288,20 @@ function MatchesContent() {
           <option value="cancelled">Cancelled</option>
         </Select>
 
+        <Select
+          value={simFilter}
+          onChange={(e) => {
+            setSimFilter(e.target.value as '' | 'true' | 'false');
+            setPage(1);
+          }}
+          aria-label="Filter by match mode"
+          className="w-full sm:w-40"
+        >
+          <option value="">All modes</option>
+          <option value="true">Simulation only</option>
+          <option value="false">Standard only</option>
+        </Select>
+
         <Input
           type="date"
           value={dateFilter}
@@ -298,6 +321,7 @@ function MatchesContent() {
               setLeagueId('');
               setSeasonId('');
               setStatus('');
+              setSimFilter('');
               setDateFilter('');
               setPage(1);
             }}
